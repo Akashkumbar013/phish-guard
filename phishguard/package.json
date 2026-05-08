@@ -1,0 +1,27 @@
+{
+  "name": "phishguard",
+  "version": "1.0.0",
+  "description": "> **Privacy-first, client-side phishing detection for Chrome & Edge** > Built with Manifest V3 · No backend required · < 5ms analysis",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Akashkumbar013/phish-guard.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Akashkumbar013/phish-guard/issues"
+  },
+  "homepage": "https://github.com/Akashkumbar013/phish-guard#readme",
+  "devDependencies": {
+    "jest": "^30.4.1"
+  }
+}
