@@ -34,6 +34,7 @@
       <nav class="sidebar-nav">
         <a href="#sec-general"      class="nav-item active" data-section="sec-general">⚙️ General</a>
         <a href="#sec-threat-intel" class="nav-item" data-section="sec-threat-intel">🛡️ Threat Intel</a>
+        <a href="#sec-ai-trust"     class="nav-item" data-section="sec-ai-trust">🤖 AI Trust Layer</a>
         <a href="#sec-blocklist"    class="nav-item" data-section="sec-blocklist">📋 Blocklist</a>
         <a href="#sec-whitelist"    class="nav-item" data-section="sec-whitelist">✅ Whitelist</a>
         <a href="#sec-privacy"      class="nav-item" data-section="sec-privacy">🔒 Privacy</a>
@@ -150,6 +151,78 @@
               <button class="btn-icon-sm" id="btn-toggle-key" title="Show/hide key" aria-label="Toggle API key visibility">👁</button>
             </div>
             <div class="api-status" id="api-status"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── AI Trust Verification Layer ────────────────────────── -->
+      <section class="settings-section" id="sec-ai-trust">
+        <div class="tbs-section-head">
+          <h2>🤖 AI Trust Verification Layer</h2>
+          <p>Performs deep AI analysis on URLs, emails, SMS, and drafts that pass heuristic checks — catching BEC, spoofing, and social engineering attacks on trusted domains.</p>
+        </div>
+
+        <div class="setting-card">
+          <div class="info-banner warning">
+            <span>🛡️</span>
+            <p>When a Gemini API key is provided, message content signals are sent to Google's Gemini API for LLM analysis. Without a key, all analysis runs locally and privately on your device.</p>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <label class="setting-label" for="toggle-ai-trust">Enable AI Trust Verification Layer</label>
+              <span class="setting-desc">Activates post-heuristic AI analysis for SAFE-rated URLs and content.</span>
+            </div>
+            <label class="tbs-toggle">
+              <input type="checkbox" id="toggle-ai-trust" />
+              <span class="tbs-slider"></span>
+            </label>
+          </div>
+
+          <div class="ai-trust-key-section" id="ai-trust-key-section" style="display:none;">
+            <div class="setting-row" style="margin-top:8px;">
+              <div class="setting-info">
+                <label class="setting-label" for="input-gemini-key">Gemini API Key <span style="font-weight:400;color:var(--faint);">(optional)</span></label>
+                <span class="setting-desc">
+                  Enables LLM-powered deep analysis via Google Gemini 2.0 Flash.
+                  Get a free key at
+                  <a href="https://aistudio.google.com/apikey" target="_blank" class="link">aistudio.google.com</a>
+                </span>
+              </div>
+            </div>
+            <div class="api-key-row" style="margin-top:6px;">
+              <input type="password" id="input-gemini-key" class="tbs-input" placeholder="AIza..." autocomplete="off" />
+              <button class="btn-icon-sm" id="btn-toggle-gemini-key" title="Show/hide key" aria-label="Toggle Gemini key visibility">👁</button>
+            </div>
+            <div class="api-status" id="gemini-key-status"></div>
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="tbs-section-head" style="padding:0;margin-bottom:10px;">
+            <h3 style="font-size:13px;margin:0;">What the AI Trust Layer Detects</h3>
+          </div>
+          <div class="privacy-table">
+            <div class="privacy-row">
+              <div class="privacy-icon safe">🗣</div>
+              <div><strong>Linguistic Analysis</strong><p>Urgency, fear language, credential requests, payment demands, executive impersonation, grammar anomalies.</p></div>
+            </div>
+            <div class="privacy-row">
+              <div class="privacy-icon safe">🏢</div>
+              <div><strong>Brand Impersonation</strong><p>Display-name spoofing (e.g., "Amazon Security" from gmail.com), BEC attacks, look-alike domains.</p></div>
+            </div>
+            <div class="privacy-row">
+              <div class="privacy-icon safe">👤</div>
+              <div><strong>Behavioral Analysis</strong><p>First-time sender detection, sending time anomalies, domain change alerts.</p></div>
+            </div>
+            <div class="privacy-row">
+              <div class="privacy-icon safe">🔗</div>
+              <div><strong>Link Analysis</strong><p>URL shorteners, Punycode, redirect chains, display URL mismatch, tracking parameters.</p></div>
+            </div>
+            <div class="privacy-row">
+              <div class="privacy-icon warn">📎</div>
+              <div><strong>Attachment Analysis</strong><p>Detects EXE, DOCM, ZIP, PDF, ISO, and double-extension tricks. Password-protected archive patterns.</p></div>
+            </div>
           </div>
         </div>
       </section>

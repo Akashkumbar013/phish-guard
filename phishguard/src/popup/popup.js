@@ -29,6 +29,12 @@ const adviceList     = $('advice-list');
 const aiEngineBlock     = $('ai-engine-block');
 const aiConfidenceScore = $('ai-confidence-score');
 
+// AI Trust panel
+const aiTrustPanel      = $('ai-trust-panel');
+const aiTrustBadge      = $('ai-trust-badge');
+const aiTrustFinalScore = $('ai-trust-final-score');
+const aiTrustGeminiNote = $('ai-trust-gemini-note');
+
 const signalCount    = $('signal-count');
 const signalsList    = $('signals-list');
 const analysisTbody  = $('analysis-tbody');
@@ -153,10 +159,58 @@ function renderResult(result) {
   // Whitelist
   btnWhitelist.textContent = result.isWhitelisted ? '✅ Trusted' : '🛡️ Trust Domain';
   btnWhitelist.disabled = !!result.isWhitelisted;
+
+  // AI Trust Verification Panel
+  renderAITrustPanel(result.aiTrust);
 }
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/** Render the AI Trust Verification panel */
+function renderAITrustPanel(aiTrust) {
+  if (!aiTrust || !aiTrust.ran) {
+    aiTrustPanel.style.display = 'none';
+    return;
+  }
+
+  aiTrustPanel.style.display = 'block';
+
+  // Badge
+  const cat = aiTrust.aiCategory || 'SAFE';
+  aiTrustBadge.textContent = cat;
+  aiTrustBadge.className   = `ai-trust-badge ai-trust-badge--${cat.toLowerCase().replace('_', '-')}`;
+
+  // Final score
+  aiTrustFinalScore.textContent = aiTrust.aiScore || 0;
+
+  // Progress bars helper
+  function setBar(barId, valId, score) {
+    const bar = $(barId);
+    const val = $(valId);
+    if (!bar || !val) return;
+    const pct  = Math.min(100, score || 0);
+    const color = pct >= 61 ? '#ef4444' : pct >= 31 ? '#f59e0b' : '#22c55e';
+    bar.style.width      = `${pct}%`;
+    bar.style.background = color;
+    val.textContent      = pct;
+    val.style.color      = color;
+  }
+
+  setBar('bar-language', 'val-language', aiTrust.languageRisk);
+  setBar('bar-brand',    'val-brand',    aiTrust.brandScore);
+  setBar('bar-behavior', 'val-behavior', aiTrust.behaviorScore);
+  setBar('bar-link',     'val-link',     aiTrust.linkRisk);
+  setBar('bar-attach',   'val-attach',   aiTrust.attachmentRisk);
+
+  // Gemini note
+  if (aiTrust.usedGemini && aiTrust.geminiReasoning) {
+    aiTrustGeminiNote.textContent = `🤖 Gemini: ${aiTrust.geminiReasoning}`;
+    aiTrustGeminiNote.classList.remove('hidden');
+  } else {
+    aiTrustGeminiNote.classList.add('hidden');
+  }
 }
 
 function showToast(msg) {

@@ -39,6 +39,13 @@ const whitelistEmpty       = $('whitelist-empty');
 const btnSave              = $('btn-save');
 const optionsToast         = $('options-toast');
 
+// AI Trust
+const toggleAITrust        = $('toggle-ai-trust');
+const inputGeminiKey       = $('input-gemini-key');
+const btnToggleGeminiKey   = $('btn-toggle-gemini-key');
+const geminiKeyStatus      = $('gemini-key-status');
+const aiTrustKeySection    = $('ai-trust-key-section');
+
 // Nav
 const navItems             = document.querySelectorAll('.nav-item');
 
@@ -53,6 +60,8 @@ const DEFAULTS = {
   enableSafeBrowsing:  false,
   safeBrowsingApiKey:  '',
   whitelistedDomains:  [],
+  enableAITrustLayer:  false,
+  geminiApiKey:        '',
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -73,6 +82,12 @@ async function loadSettings() {
     inputApiKey.value           = syncData.safeBrowsingApiKey || '';
     apiKeySection.style.display = syncData.enableSafeBrowsing ? 'flex' : 'none';
     updateApiStatus(syncData.safeBrowsingApiKey);
+
+    // AI Trust Layer
+    toggleAITrust.checked         = syncData.enableAITrustLayer || false;
+    inputGeminiKey.value          = syncData.geminiApiKey || '';
+    aiTrustKeySection.style.display = syncData.enableAITrustLayer ? 'block' : 'none';
+    updateGeminiKeyStatus(syncData.geminiApiKey);
 
     // Whitelist
     renderWhitelist(syncData.whitelistedDomains || []);
@@ -99,6 +114,8 @@ async function saveSettings() {
       cacheTtlMinutes:     parseInt(cacheTtl.value, 10) || 5,
       enableSafeBrowsing:  toggleSafeBrowsing.checked,
       safeBrowsingApiKey:  inputApiKey.value.trim(),
+      enableAITrustLayer:  toggleAITrust.checked,
+      geminiApiKey:        inputGeminiKey.value.trim(),
     });
 
     // Notify service worker to clear cache (settings changed)
@@ -144,6 +161,39 @@ function updateApiStatus(key) {
 }
 
 inputApiKey.addEventListener('input', () => updateApiStatus(inputApiKey.value.trim()));
+
+// ──────────────────────────────────────────────────────────────────────────────
+// AI Trust Layer Settings
+// ──────────────────────────────────────────────────────────────────────────────
+toggleAITrust.addEventListener('change', () => {
+  aiTrustKeySection.style.display = toggleAITrust.checked ? 'block' : 'none';
+});
+
+btnToggleGeminiKey.addEventListener('click', () => {
+  const isPass = inputGeminiKey.type === 'password';
+  inputGeminiKey.type      = isPass ? 'text' : 'password';
+  btnToggleGeminiKey.textContent = isPass ? '🙈' : '👁';
+});
+
+function updateGeminiKeyStatus(key) {
+  if (!toggleAITrust.checked) {
+    geminiKeyStatus.textContent = '';
+    geminiKeyStatus.className   = 'api-status';
+    return;
+  }
+  if (!key) {
+    geminiKeyStatus.textContent = 'ℹ️ No Gemini key — AI Trust runs locally only.';
+    geminiKeyStatus.className   = 'api-status';
+  } else if (key.startsWith('AIza') && key.length > 30) {
+    geminiKeyStatus.textContent = '✅ Gemini API key looks valid.';
+    geminiKeyStatus.className   = 'api-status ok';
+  } else {
+    geminiKeyStatus.textContent = '⚠️ Gemini key format looks incorrect.';
+    geminiKeyStatus.className   = 'api-status error';
+  }
+}
+
+inputGeminiKey.addEventListener('input', () => updateGeminiKeyStatus(inputGeminiKey.value.trim()));
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Cache Clear

@@ -15,7 +15,8 @@ class SmsThreatScanner {
     ).map { it.toRegex(RegexOption.IGNORE_CASE) }
 
     private val authorityPatterns = listOf(
-        "ceo", "it support", "admin", "hr", "government", "official", "bank", "kyc"
+        "ceo", "it support", "admin", "hr", "government", "official", "bank", "kyc",
+        "grid control", "hospital admin", "electricity board"
     ).map { it.toRegex(RegexOption.IGNORE_CASE) }
 
     private val actionPatterns = listOf(

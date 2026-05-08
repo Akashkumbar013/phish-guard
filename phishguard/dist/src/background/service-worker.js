@@ -306,14 +306,14 @@ async function handlePageSignals(tabId, signals) {
 }
 
 /**
- * Run the AI Trust Verification Layer for a safe-rated result.
- * Purely additive — merges AI penalty rules back via finalizeAnalysis.
+ * Run the AI Trust Verification Layer — runs on every URL.
+ * Purely additive — merges AI penalty rules back into existing state.
  */
 async function runAITrustOnResult(tabId, heuristicResult) {
   const settings = await chrome.storage.sync.get(['enableAITrustLayer', 'geminiApiKey']);
   if (!settings.enableAITrustLayer) return;
 
-  // Build content signals from URL (page-level signals — body/email extracted by content.js separately)
+  // Build content signals from URL
   const content = {
     senderEmail:  '',
     senderDomain: heuristicResult.domain || '',
@@ -327,7 +327,7 @@ async function runAITrustOnResult(tabId, heuristicResult) {
   };
 
   const aiResult = await runAITrustVerification(heuristicResult, content, settings);
-  if (!aiResult.ran || aiResult.heuristicPenalty === 0) return;
+  if (!aiResult.ran) return;
 
   const existing = await Storage.getTabState(tabId);
   if (!existing) return;
@@ -337,64 +337,71 @@ async function runAITrustOnResult(tabId, heuristicResult) {
 
   const infoRules = [];
 
-  if (aiResult.languageRisk > 30) {
+  // Add informational sub-score rules (0 points — display only)
+  if (aiResult.languageRisk > 0) {
     infoRules.push({
       rule:      RULES.AI_TRUST_LINGUISTIC,
       points:    0,
       label:     RULE_META[RULES.AI_TRUST_LINGUISTIC].label,
-      reason:    `Language risk score: ${aiResult.languageRisk}/100. Flags: ${(aiResult.allFlags.slice(0, 2)).join('; ') || 'Suspicious patterns detected'}.`,
+      reason:    `Language risk: ${aiResult.languageRisk}/100.${aiResult.allFlags.length ? ' Flags: ' + aiResult.allFlags.slice(0, 2).join('; ') + '.' : ' No suspicious patterns.'}`,
       category:  'ai-trust',
       triggered: true,
     });
   }
 
-  if (aiResult.brandScore > 30) {
+  if (aiResult.brandScore > 0) {
     infoRules.push({
       rule:      RULES.AI_TRUST_BRAND,
       points:    0,
       label:     RULE_META[RULES.AI_TRUST_BRAND].label,
-      reason:    `Brand impersonation score: ${aiResult.brandScore}/100.${aiResult.detectedBrand ? ` Detected brand: ${aiResult.detectedBrand.toUpperCase()}.` : ''}`,
+      reason:    `Brand impersonation: ${aiResult.brandScore}/100.${aiResult.detectedBrand ? ' Detected brand: ' + aiResult.detectedBrand.toUpperCase() + '.' : ' No impersonation detected.'}`,
       category:  'ai-trust',
       triggered: true,
     });
   }
 
-  if (aiResult.behaviorScore > 20) {
+  if (aiResult.behaviorScore > 0) {
     infoRules.push({
       rule:      RULES.AI_TRUST_BEHAVIOR,
       points:    0,
       label:     RULE_META[RULES.AI_TRUST_BEHAVIOR].label,
-      reason:    `Behavioral score: ${aiResult.behaviorScore}/100. ${aiResult.isFirstTimeSender ? 'First-time sender.' : 'Anomaly detected.'}`,
+      reason:    `Behavioral score: ${aiResult.behaviorScore}/100. ${aiResult.isFirstTimeSender ? 'First-time sender detected.' : 'No behavioral anomalies.'}`,
       category:  'ai-trust',
       triggered: true,
     });
   }
 
-  if (aiResult.linkRisk > 30) {
+  if (aiResult.linkRisk > 0) {
     infoRules.push({
       rule:      RULES.AI_TRUST_LINK,
       points:    0,
       label:     RULE_META[RULES.AI_TRUST_LINK].label,
-      reason:    `Link risk score: ${aiResult.linkRisk}/100. Suspicious link patterns detected.`,
+      reason:    `Link risk: ${aiResult.linkRisk}/100. ${aiResult.linkRisk > 30 ? 'Suspicious link patterns detected.' : 'Links appear normal.'}`,
       category:  'ai-trust',
       triggered: true,
     });
   }
 
-  // The final penalty rule (this is the one that affects score)
-  const geminiNote = aiResult.usedGemini ? ` (Gemini: ${aiResult.geminiReasoning})` : '';
+  // Always add the final summary rule — even with 0 penalty (for UI display)
+  const geminiNote = aiResult.usedGemini ? ` Gemini: ${aiResult.geminiReasoning}` : '';
+  const safeNote   = aiResult.heuristicPenalty === 0
+    ? 'No elevated risk detected by AI verification.'
+    : 'Trusted domain flagged — may be abused for social engineering.';
   infoRules.push({
     rule:      RULES.AI_TRUST_FINAL,
     points:    aiResult.heuristicPenalty,
-    label:     RULE_META[RULES.AI_TRUST_FINAL].label,
-    reason:    `AI Trust score: ${aiResult.aiScore}/100 — ${aiResult.aiCategory}. ${geminiNote || 'Trusted domain may be abused for social engineering.'}`.trim(),
+    label:     aiResult.heuristicPenalty === 0
+      ? 'AI Trust Verification: Passed'
+      : RULE_META[RULES.AI_TRUST_FINAL].label,
+    reason:    `AI Trust score: ${aiResult.aiScore}/100 — ${aiResult.aiCategory}. ${geminiNote || safeNote}`.trim(),
     category:  'ai-trust',
     triggered: true,
   });
 
-  const updatedRules = [...(existing.rules || []), ...infoRules];
-  const updatedScore = updatedRules.reduce((sum, r) => sum + r.points, 0);
-  const updatedRaw   = { ...existing, rules: updatedRules, score: Math.max(0, updatedScore), aiTrust: aiResult };
+  // Always merge and persist — even for SAFE verdict (so popup always shows the panel)
+  const updatedRules  = [...(existing.rules || []), ...infoRules];
+  const updatedScore  = Math.max(0, updatedRules.reduce((sum, r) => sum + r.points, 0));
+  const updatedRaw    = { ...existing, rules: updatedRules, score: updatedScore, aiTrust: aiResult };
   const updatedResult = scoreResult(updatedRaw);
   updatedResult.aiTrust = aiResult;
 
@@ -402,7 +409,7 @@ async function runAITrustOnResult(tabId, heuristicResult) {
   await updateBadge(tabId, updatedResult.category);
   notifyPopup(tabId, updatedResult);
 
-  console.log(`[PhishGuard AI Trust] Completed for ${heuristicResult.domain}: ${aiResult.aiCategory} (score: ${aiResult.aiScore}, penalty: +${aiResult.heuristicPenalty})`);
+  console.log(`[PhishGuard AI Trust] ${heuristicResult.domain}: ${aiResult.aiCategory} (score: ${aiResult.aiScore}, penalty: +${aiResult.heuristicPenalty})`);
 }
 
 async function addToWhitelist(domain) {

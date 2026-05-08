@@ -53,7 +53,8 @@
   ],
 
   "host_permissions": [
-    "https://safebrowsing.googleapis.com/*"
+    "https://safebrowsing.googleapis.com/*",
+    "https://generativelanguage.googleapis.com/*"
   ],
 
   "content_security_policy": {
