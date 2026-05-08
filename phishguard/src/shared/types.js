@@ -71,6 +71,7 @@ export const RULES = {
   AI_PHISHING_MODEL:    'ai_phishing_model',
   NLP_TEXT_PHISHING:    'nlp_text_phishing',
   GMAIL_SPAM_DETECTED:  'gmail_spam_detected',
+  NRD_HEURISTIC:        'nrd_heuristic',
 };
 
 /** Rule metadata: weight (points) + human-readable description */
@@ -218,5 +219,11 @@ export const RULE_META = {
     label:       'Gmail Spam Alert',
     description: 'Gmail has internally flagged this message or folder as suspicious/spam.',
     category:    'page',
+  },
+  [RULES.NRD_HEURISTIC]: {
+    weight:      45,
+    label:       'Newly Registered Domain Pattern',
+    description: 'Domain exhibits patterns common in newly registered phishing sites (Suspicious TLD + High Entropy).',
+    category:    'domain',
   },
 };

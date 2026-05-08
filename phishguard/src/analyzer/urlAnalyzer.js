@@ -244,7 +244,14 @@ export function analyzeURL(urlString) {
     addRule(RULES.BLOCKLIST_HIT, `"${domain}" matches the local phishing blocklist.`);
   }
 
-  // ── Rule 18: HTTPS Bonus (only if no other risk signals) ─────────────────
+  // ── Rule 18: Newly Registered Domain (NRD) Heuristic ─────────────────────
+  // Flags domains with suspicious TLDs and High Entropy/Randomness
+  const domainEntropy = shannonEntropy(domainWithoutTLD);
+  if (SUSPICIOUS_TLDS.has(tld) && domainEntropy > 3.2 && domainWithoutTLD.length > 8) {
+    addRule(RULES.NRD_HEURISTIC, `Domain "${domain}" has high randomness and a suspicious TLD, typical of newly registered phishing domains.`);
+  }
+
+  // ── Rule 19: HTTPS Bonus (only if no other risk signals) ─────────────────
   if (protocol === 'https:' && triggered.length === 0) {
     addRule(RULES.HTTPS_BONUS, `Site uses HTTPS. Minor positive signal (HTTPS alone doesn't guarantee safety).`);
   }

@@ -87,6 +87,18 @@ class SmsThreatScanner {
             }
         }
 
+        // 6. Newly Registered Domain (NRD) Heuristic
+        val suspiciousTlds = setOf("tk", "ml", "ga", "cf", "gq", "pw", "top", "xyz", "icu", "cyou")
+        val domainRegex = "([^\\s.]+\\.[^\\s.]+)(?=/|$)".toRegex()
+        domainRegex.findAll(text).forEach { match ->
+            val domain = match.value
+            val tld = domain.substringAfterLast(".")
+            if (suspiciousTlds.contains(tld)) {
+                score += 25
+                detectedSignals.add("Newly Registered Domain Pattern: .$tld")
+            }
+        }
+
         // Final score capping and categorization
         val finalScore = score.coerceIn(0, 100)
         
