@@ -1,181 +1,92 @@
 /**
- * PhishGuard — AI Trust Verification Layer (Orchestrator)
- * Triggered ONLY when heuristic engine rates a URL/content as SAFE or LOW RISK.
- * Runs linguistic, brand, behavioral, link, and attachment analysis locally,
- * then optionally escalates to Gemini API for LLM-powered deep analysis.
- *
- * This module is ADDITIVE — it never overrides the heuristic engine.
- * It only produces an additional score that gets merged back via the existing scorer.
+ * PhishGuard — AI Trust Verification Layer
+ * Orchestrates multiple AI/logic-based checks when heuristics say a site is SAFE.
  */
 
-import { analyzeLinguistics }        from './linguisticAnalyzer.js';
-import { detectBrandImpersonation }  from './brandImpersonationDetector.js';
-import { analyzeBehavior, recordSenderInteraction } from './behavioralAnalyzer.js';
-import { analyzeLinkChain }          from './linkChainAnalyzer.js';
-import { analyzeAttachments }        from './attachmentAnalyzer.js';
-import { callGeminiAnalysis }        from './geminiClient.js';
+import { analyzeLinguisticPatterns } from './linguisticAnalyzer.js';
+import { detectBrandImpersonation } from './brandImpersonationDetector.js';
+import { analyzeBehavior } from './behavioralAnalyzer.js';
+import { analyzeLinkChain } from './linkChainAnalyzer.js';
+import { analyzeAttachments } from './attachmentAnalyzer.js';
+import { analyzeWithGemini } from './geminiClient.js';
+import { RULES } from '../shared/types.js';
 
 /**
- * @typedef {Object} AITrustResult
- * @property {boolean}  ran             — Whether the AI layer ran
- * @property {number}   aiScore         — Combined AI confidence score (0–100)
- * @property {string}   aiCategory      — 'SAFE' | 'SUSPICIOUS' | 'HIGH_RISK'
- * @property {number}   languageRisk    — Linguistic analysis score (0–100)
- * @property {number}   brandScore      — Brand impersonation score (0–100)
- * @property {number}   behaviorScore   — Behavioral anomaly score (0–100)
- * @property {number}   linkRisk        — Link chain analysis score (0–100)
- * @property {number}   attachmentRisk  — Attachment analysis score (0–100)
- * @property {string[]} allFlags        — Combined flags from all sub-analyzers
- * @property {boolean}  usedGemini      — Whether Gemini API was used
- * @property {string}   geminiReasoning — Gemini reasoning text (if used)
- * @property {number}   heuristicPenalty — Points to add to heuristic score
- * @property {number}   timestamp
+ * Runs the AI Trust Verification Layer.
+ * @param {object} result - Existing heuristic result
+ * @param {object} content - { bodyText, sender, attachments, ... }
+ * @param {object} settings - { enableAITrustLayer, geminiApiKey, ... }
+ * @returns {Promise<object>}
  */
+export async function runAITrustVerification(result, content = {}, settings = {}) {
+  const { bodyText, sender, attachments, history } = content;
+  
+  // 1. Local specialized analysis
+  const linguisticScore = analyzeLinguisticPatterns(bodyText);
+  const brandScore      = detectBrandImpersonation(bodyText || sender, result.domain);
+  const behaviorScore   = await analyzeBehavior({ sender, history });
+  const linkScore       = analyzeLinkChain(result.url);
+  const attachmentScore = analyzeAttachments(attachments);
 
-/**
- * Determine the AI category from a composite score.
- * @param {number} score 0–100
- * @returns {'SAFE'|'SUSPICIOUS'|'HIGH_RISK'}
- */
-function scoreToAICategory(score) {
-  if (score >= 61) return 'HIGH_RISK';
-  if (score >= 31) return 'SUSPICIOUS';
-  return 'SAFE';
-}
+  // 2. Weighted total (Local)
+  // Linguistic: 30%, Brand: 30%, Behavior: 20%, Link: 20%
+  const localConfidence = (
+    (linguisticScore * 0.3) +
+    (brandScore * 0.3) +
+    (behaviorScore * 0.2) +
+    (linkScore * 0.2)
+  );
 
-/**
- * Map AI category to a heuristic score penalty.
- * Conservative — respects the existing scoring thresholds.
- */
-function categoryToPenalty(category) {
-  switch (category) {
-    case 'HIGH_RISK':  return 50;
-    case 'SUSPICIOUS': return 25;
-    default:           return 0;
-  }
-}
+  let finalAiScore = localConfidence;
+  let usedGemini = false;
+  let geminiVerdict = null;
 
-/**
- * Main entry point: Run the AI Trust Verification Layer.
- *
- * @param {Object} heuristicResult — The result from the existing heuristic engine
- * @param {Object} content         — Content signals (body, subject, sender info, URLs, attachments)
- * @param {Object} settings        — { enableAITrustLayer, geminiApiKey }
- * @returns {Promise<AITrustResult>}
- */
-export async function runAITrustVerification(heuristicResult, content = {}, settings = {}) {
-  if (!settings.enableAITrustLayer) {
-    return { ran: false };
-  }
-
-  const {
-    body          = '',
-    subject       = '',
-    displayName   = '',
-    senderEmail   = '',
-    senderDomain  = '',
-    urls          = [],
-    attachments   = [],
-    displayUrl    = '',
-    actualUrl     = '',
-    sendTimestamp = Date.now(),
-  } = content;
-
-  // ── Step 1: Run all local sub-analyzers in parallel ─────────────────────
-  const [linguistic, brand, behavior, links, attachment] = await Promise.all([
-    Promise.resolve(analyzeLinguistics(body || subject)),
-    Promise.resolve(detectBrandImpersonation({ displayName, senderEmail, senderDomain, body, subject })),
-    analyzeBehavior({ senderEmail, senderDomain, sendTimestamp }),
-    Promise.resolve(analyzeLinkChain({ body, urls, displayUrl, actualUrl })),
-    Promise.resolve(analyzeAttachments({ attachments, body })),
-  ]);
-
-  // ── Step 2: Record sender interaction for future behavioral analysis ─────
-  if (senderEmail) {
-    recordSenderInteraction(senderEmail, senderDomain).catch(() => {});
-  }
-
-  // ── Step 3: Compute weighted AI composite score ─────────────────────────
-  // Weights: linguistic 30%, brand 30%, behavioral 20%, link 20%
-  // Attachments are additive bonus (up to +20 pts on top)
-  const compositeScore = Math.round(
-    linguistic.score  * 0.30 +
-    brand.score       * 0.30 +
-    behavior.score    * 0.20 +
-    links.score       * 0.20
-  ) + Math.min(20, Math.round(attachment.score * 0.2));
-
-  const clampedScore   = Math.min(100, compositeScore);
-  const localCategory  = scoreToAICategory(clampedScore);
-
-  // ── Step 4: Combine all flags ────────────────────────────────────────────
-  const allFlags = [
-    ...linguistic.flags,
-    ...brand.flags,
-    ...behavior.flags,
-    ...links.flags,
-    ...attachment.flags,
-  ];
-
-  // ── Step 5: Optional Gemini deep analysis ────────────────────────────────
-  let geminiVerdict   = 'SAFE';
-  let geminiConfidence = 0;
-  let geminiReasoning = '';
-  let geminiFlags     = [];
-  let usedGemini      = false;
-
-  if (settings.geminiApiKey && settings.enableAITrustLayer) {
-    const geminiResult = await callGeminiAnalysis({
-      senderEmail,
-      senderDomain,
-      displayName,
-      subject,
-      body,
-      url:             heuristicResult?.url,
-      domain:          heuristicResult?.domain,
-      linguisticFlags: linguistic.flags,
-      brandFlags:      brand.flags,
-      linkFlags:       links.flags,
-      attachmentFlags: attachment.flags,
+  // 3. Optional Gemini upgrade
+  if (settings.enableAITrustLayer && settings.geminiApiKey) {
+    const geminiResult = await analyzeWithGemini({
+      heuristicScore: result.score,
+      linguisticScore,
+      brandScore,
+      behaviorScore,
+      linkScore,
+      attachmentScore,
+      url: result.url,
+      textSnippet: bodyText?.substring(0, 500)
     }, settings.geminiApiKey);
 
-    usedGemini      = geminiResult.usedGemini;
-    geminiVerdict   = geminiResult.verdict || 'SAFE';
-    geminiConfidence = geminiResult.confidence || 0;
-    geminiReasoning = geminiResult.reasoning  || '';
-    geminiFlags     = geminiResult.flags      || [];
+    if (geminiResult) {
+      finalAiScore = geminiResult.confidence;
+      geminiVerdict = geminiResult.verdict;
+      usedGemini = true;
+    }
   }
 
-  // ── Step 6: Final AI category (Gemini takes precedence if used) ──────────
-  const finalCategory = usedGemini
-    ? (geminiVerdict === 'HIGH_RISK' || geminiVerdict === 'SUSPICIOUS' ? geminiVerdict : localCategory)
-    : localCategory;
+  // 4. Map to category
+  let aiCategory = 'SAFE';
+  if (finalAiScore > 60 || geminiVerdict === 'HIGH RISK') aiCategory = 'HIGH RISK';
+  else if (finalAiScore > 30 || geminiVerdict === 'SUSPICIOUS') aiCategory = 'SUSPICIOUS';
 
-  // Reconcile score: if Gemini says high risk but local says safe, blend
-  let finalScore = clampedScore;
-  if (usedGemini && geminiConfidence > 0) {
-    finalScore = Math.round((clampedScore * 0.4) + (geminiConfidence * 0.6));
-  }
-
-  const aiCategory      = finalScore >= 61 ? 'HIGH_RISK' : finalScore >= 31 ? 'SUSPICIOUS' : 'SAFE';
-  const heuristicPenalty = categoryToPenalty(aiCategory);
+  // 5. Build rules for the extension UI
+  const aiRules = [
+    { rule: RULES.AI_TRUST_LINGUISTIC, points: 0, reason: `Score: ${linguisticScore}/100` },
+    { rule: RULES.AI_TRUST_BRAND,      points: 0, reason: `Score: ${brandScore}/100` },
+    { rule: RULES.AI_TRUST_BEHAVIOR,   points: 0, reason: `Score: ${behaviorScore}/100` },
+    { rule: RULES.AI_TRUST_LINK,       points: 0, reason: `Score: ${linkScore}/100` }
+  ];
 
   return {
-    ran:             true,
-    aiScore:         Math.min(100, finalScore),
+    ran: true,
+    aiScore: Math.round(finalAiScore),
     aiCategory,
-    languageRisk:    linguistic.score,
-    brandScore:      brand.score,
-    behaviorScore:   behavior.score,
-    linkRisk:        links.score,
-    attachmentRisk:  attachment.score,
-    allFlags:        [...new Set([...allFlags, ...geminiFlags])],
-    detectedBrand:   brand.detectedBrand,
-    isBrandSpoofed:  brand.isSpoofed,
-    isFirstTimeSender: behavior.isFirstTime,
+    subScores: {
+      linguistic: linguisticScore,
+      brand: brandScore,
+      behavior: behaviorScore,
+      link: linkScore,
+      attachment: attachmentScore
+    },
     usedGemini,
-    geminiReasoning,
-    heuristicPenalty,
-    timestamp:       Date.now(),
+    aiRules,
+    timestamp: Date.now()
   };
 }

@@ -72,7 +72,6 @@ export const RULES = {
   NLP_TEXT_PHISHING:    'nlp_text_phishing',
   GMAIL_SPAM_DETECTED:  'gmail_spam_detected',
   NRD_HEURISTIC:        'nrd_heuristic',
-  // AI Trust Verification Layer rules
   AI_TRUST_LINGUISTIC:  'ai_trust_linguistic',
   AI_TRUST_BRAND:       'ai_trust_brand',
   AI_TRUST_BEHAVIOR:    'ai_trust_behavior',
@@ -232,36 +231,34 @@ export const RULE_META = {
     description: 'Domain exhibits patterns common in newly registered phishing sites (Suspicious TLD + High Entropy).',
     category:    'domain',
   },
-
-  // ── AI Trust Verification Layer ─────────────────────────────────────────
   [RULES.AI_TRUST_LINGUISTIC]: {
-    weight:      0,  // informational — penalty applied via AI_TRUST_FINAL
-    label:       'AI: High-Risk Language Detected',
-    description: 'AI Trust Layer detected urgency, fear, credential, or payment language patterns.',
-    category:    'ai-trust',
+    weight:      0,
+    label:       'AI Linguistic Analysis',
+    description: 'AI-based analysis of language patterns, urgency, and tone.',
+    category:    'ai_trust',
   },
   [RULES.AI_TRUST_BRAND]: {
     weight:      0,
-    label:       'AI: Brand Impersonation Detected',
-    description: 'AI Trust Layer detected a mismatch between claimed brand identity and actual sender domain.',
-    category:    'ai-trust',
+    label:       'AI Brand Verification',
+    description: 'Deep check for brand impersonation and spoofing.',
+    category:    'ai_trust',
   },
   [RULES.AI_TRUST_BEHAVIOR]: {
     weight:      0,
-    label:       'AI: Behavioral Anomaly Detected',
-    description: 'AI Trust Layer detected first-time sender, unusual sending time, or domain change anomalies.',
-    category:    'ai-trust',
+    label:       'AI Behavioral Check',
+    description: 'Analysis of sender behavior and timing anomalies.',
+    category:    'ai_trust',
   },
   [RULES.AI_TRUST_LINK]: {
     weight:      0,
-    label:       'AI: Suspicious Link Pattern',
-    description: 'AI Trust Layer detected URL shorteners, Punycode, redirect chains, or display URL mismatch.',
-    category:    'ai-trust',
+    label:       'AI Link Analysis',
+    description: 'Deep inspection of URL redirect chains and shorteners.',
+    category:    'ai_trust',
   },
   [RULES.AI_TRUST_FINAL]: {
-    weight:      25,  // default penalty — overridden dynamically in service-worker
-    label:       'AI Trust Verification: Elevated Risk',
-    description: 'The AI Trust Verification Layer flagged this as suspicious despite passing heuristic checks. Trusted domains can be abused for BEC, spoofing, or social engineering.',
-    category:    'ai-trust',
+    weight:      40,
+    label:       'AI Trust Layer Alert',
+    description: 'The AI Trust Layer has flagged this content as suspicious despite clean heuristics.',
+    category:    'ai_trust',
   },
 };

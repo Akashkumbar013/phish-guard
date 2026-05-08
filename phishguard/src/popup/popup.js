@@ -29,11 +29,17 @@ const adviceList     = $('advice-list');
 const aiEngineBlock     = $('ai-engine-block');
 const aiConfidenceScore = $('ai-confidence-score');
 
-// AI Trust panel
-const aiTrustPanel      = $('ai-trust-panel');
-const aiTrustBadge      = $('ai-trust-badge');
-const aiTrustFinalScore = $('ai-trust-final-score');
-const aiTrustGeminiNote = $('ai-trust-gemini-note');
+const aiTrustPanel       = $('ai-trust-panel');
+const aiTrustBadge       = $('ai-trust-badge');
+const aiLangProgress     = $('ai-lang-progress');
+const aiLangScore        = $('ai-lang-score');
+const aiBrandProgress    = $('ai-brand-progress');
+const aiBrandScore       = $('ai-brand-score');
+const aiBehaviorProgress = $('ai-behavior-progress');
+const aiBehaviorScore    = $('ai-behavior-score');
+const aiLinkProgress     = $('ai-link-progress');
+const aiLinkScore        = $('ai-link-score');
+const aiFinalTrustScore  = $('ai-final-trust-score');
 
 const signalCount    = $('signal-count');
 const signalsList    = $('signals-list');
@@ -76,6 +82,12 @@ function showResult() {
 // ── Main render ───────────────────────────────────────────────────
 function renderResult(result) {
   if (!result) return;
+  
+  if (result.error) {
+    showError(result.errorMsg || 'An error occurred during analysis.');
+    return;
+  }
+
   if (result.category === RISK_CATEGORY.UNKNOWN) {
     showLoading();
     return;
@@ -138,6 +150,31 @@ function renderResult(result) {
     aiConfidenceScore.textContent = match ? `${match[1]}%` : '99%';
   }
 
+  // AI Trust Layer
+  if (result.aiTrust) {
+    aiTrustPanel.style.display = 'block';
+    const trust = result.aiTrust;
+    aiTrustBadge.textContent = trust.aiCategory;
+    aiTrustBadge.style.backgroundColor = trust.aiCategory === 'SAFE' ? '#dcfce7' : (trust.aiCategory === 'HIGH RISK' ? '#fee2e2' : '#fef3c7');
+    aiTrustBadge.style.color = trust.aiCategory === 'SAFE' ? '#15803d' : (trust.aiCategory === 'HIGH RISK' ? '#b91c1c' : '#b45309');
+    
+    aiLangScore.textContent = `${trust.subScores.linguistic}/100`;
+    aiLangProgress.style.width = `${trust.subScores.linguistic}%`;
+    
+    aiBrandScore.textContent = `${trust.subScores.brand}/100`;
+    aiBrandProgress.style.width = `${trust.subScores.brand}%`;
+    
+    aiBehaviorScore.textContent = `${trust.subScores.behavior}/100`;
+    aiBehaviorProgress.style.width = `${trust.subScores.behavior}%`;
+    
+    aiLinkScore.textContent = `${trust.subScores.link}/100`;
+    aiLinkProgress.style.width = `${trust.subScores.link}%`;
+    
+    aiFinalTrustScore.textContent = `${trust.aiScore}/100`;
+  } else {
+    aiTrustPanel.style.display = 'none';
+  }
+
   const positives = (result.sortedRules || []).filter(r => r.points > 0);
   signalCount.textContent = positives.length;
   signalsList.innerHTML = positives.length === 0 
@@ -159,58 +196,10 @@ function renderResult(result) {
   // Whitelist
   btnWhitelist.textContent = result.isWhitelisted ? '✅ Trusted' : '🛡️ Trust Domain';
   btnWhitelist.disabled = !!result.isWhitelisted;
-
-  // AI Trust Verification Panel
-  renderAITrustPanel(result.aiTrust);
 }
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-/** Render the AI Trust Verification panel */
-function renderAITrustPanel(aiTrust) {
-  if (!aiTrust || !aiTrust.ran) {
-    aiTrustPanel.style.display = 'none';
-    return;
-  }
-
-  aiTrustPanel.style.display = 'block';
-
-  // Badge
-  const cat = aiTrust.aiCategory || 'SAFE';
-  aiTrustBadge.textContent = cat;
-  aiTrustBadge.className   = `ai-trust-badge ai-trust-badge--${cat.toLowerCase().replace('_', '-')}`;
-
-  // Final score
-  aiTrustFinalScore.textContent = aiTrust.aiScore || 0;
-
-  // Progress bars helper
-  function setBar(barId, valId, score) {
-    const bar = $(barId);
-    const val = $(valId);
-    if (!bar || !val) return;
-    const pct  = Math.min(100, score || 0);
-    const color = pct >= 61 ? '#ef4444' : pct >= 31 ? '#f59e0b' : '#22c55e';
-    bar.style.width      = `${pct}%`;
-    bar.style.background = color;
-    val.textContent      = pct;
-    val.style.color      = color;
-  }
-
-  setBar('bar-language', 'val-language', aiTrust.languageRisk);
-  setBar('bar-brand',    'val-brand',    aiTrust.brandScore);
-  setBar('bar-behavior', 'val-behavior', aiTrust.behaviorScore);
-  setBar('bar-link',     'val-link',     aiTrust.linkRisk);
-  setBar('bar-attach',   'val-attach',   aiTrust.attachmentRisk);
-
-  // Gemini note
-  if (aiTrust.usedGemini && aiTrust.geminiReasoning) {
-    aiTrustGeminiNote.textContent = `🤖 Gemini: ${aiTrust.geminiReasoning}`;
-    aiTrustGeminiNote.classList.remove('hidden');
-  } else {
-    aiTrustGeminiNote.classList.add('hidden');
-  }
 }
 
 function showToast(msg) {

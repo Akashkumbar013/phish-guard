@@ -7,7 +7,7 @@ import { analyzeURL, mergeIntelResults } from '../analyzer/urlAnalyzer.js';
 import { scoreResult, getBadgeConfig }   from '../analyzer/scorer.js';
 import { checkGoogleSafeBrowsing, checkCustomBlocklist, checkWhitelist } from '../analyzer/threatIntel.js';
 import { analysisCache }                 from '../shared/cache.js';
-import { RISK_CATEGORY, BADGE_CONFIG, RULES, RULE_META }   from '../shared/types.js';
+import { RISK_CATEGORY, BADGE_CONFIG, RULES, RULE_META, SCORE_THRESHOLDS }   from '../shared/types.js';
 import * as Storage                      from '../shared/storage.js';
 import { runAITrustVerification }        from '../ai/aiTrustLayer.js';
 
@@ -115,14 +115,15 @@ async function analyzeTab(tabId, url) {
     analysisCache.set(domain, finalResult);
     await finalizeAnalysis(tabId, finalResult);
 
-    // 6. AI Trust Verification Layer (runs on every result for full coverage)
-    runAITrustOnResult(tabId, finalResult).catch(err =>
-      console.warn('[PhishGuard AI Trust] Error:', err.message)
-    );
-
   } catch (err) {
     console.error('[PhishGuard] Analysis error:', err);
     await setBadgeUnknown(tabId);
+    await Storage.setTabState(tabId, { 
+      category: RISK_CATEGORY.UNKNOWN, 
+      error: true, 
+      errorMsg: err.message 
+    });
+    notifyPopup(tabId, { category: RISK_CATEGORY.UNKNOWN, error: true });
   }
 }
 
@@ -147,6 +148,49 @@ async function finalizeAnalysis(tabId, newResult) {
   };
   
   const finalScored = scoreResult(mergedRaw);
+
+  // 6. Step 3: AI Trust Layer (Only if Safe/Trusted)
+  if (finalScored.category === RISK_CATEGORY.SAFE && !finalScored.aiTrust?.ran) {
+    const settings = await chrome.storage.sync.get(['enableAITrustLayer', 'geminiApiKey']);
+    if (settings.enableAITrustLayer) {
+      try {
+        // Show initial SAFE result first to avoid UI hang
+        await Storage.setTabState(tabId, finalScored);
+        notifyPopup(tabId, finalScored);
+
+        // Collect basic page text if available
+        const pageData = await Storage.getTabState(tabId);
+        const aiResult = await runAITrustVerification(finalScored, { bodyText: pageData?.bodyText }, settings);
+        
+        if (aiResult && aiResult.aiCategory !== 'SAFE') {
+          const meta = RULE_META[RULES.AI_TRUST_FINAL];
+          finalScored.rules.push({
+            rule: RULES.AI_TRUST_FINAL,
+            points: aiResult.aiCategory === 'HIGH RISK' ? 50 : 25,
+            label: meta.label,
+            reason: `AI Trust Layer flagged this as ${aiResult.aiCategory} (Score: ${aiResult.aiScore}/100).`,
+            category: meta.category,
+            triggered: true
+          });
+          finalScored.rules.push(...(aiResult.aiRules || []));
+        }
+        finalScored.aiTrust = aiResult;
+        
+        const updatedScored = scoreResult({
+          ...finalScored,
+          score: finalScored.rules.reduce((acc, r) => acc + r.points, 0)
+        });
+
+        await Storage.setTabState(tabId, updatedScored);
+        await updateBadge(tabId, updatedScored.category);
+        notifyPopup(tabId, updatedScored);
+        return;
+      } catch (aiErr) {
+        console.warn('[PhishGuard] AI Trust Layer failed:', aiErr);
+        // Fall through to finalize with heuristic result
+      }
+    }
+  }
 
   await Storage.setTabState(tabId, finalScored);
   await updateBadge(tabId, finalScored.category);
@@ -210,6 +254,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
     });
     return true;
+  }
+
+  if (message.type === 'REANALYZE') {
+    chrome.tabs.get(message.tabId).then(tab => {
+      if (tab?.url) {
+        // Clear cache for this domain first to force fresh analysis
+        try {
+          const domain = new URL(tab.url).hostname;
+          analysisCache.delete(domain);
+        } catch {}
+        analyzeTab(message.tabId, tab.url);
+      }
+    });
+    return false;
+  }
+
+  if (message.type === 'CLEAR_CACHE') {
+    analysisCache.clear?.();
+    return false;
   }
 });
 
@@ -284,9 +347,19 @@ async function handleGmailSpam(tabId, url) {
 }
 
 async function handlePageSignals(tabId, signals) {
-  if (!tabId || !signals || signals.passwordFields === 0) return;
+  if (!tabId || !signals) return;
   const existing = await Storage.getTabState(tabId);
-  if (!existing || existing.score < 10) return;
+  if (!existing) return;
+
+  // Save bodyText for AI Trust layer
+  if (signals.bodyText) {
+    existing.bodyText = signals.bodyText;
+  }
+
+  if (signals.passwordFields === 0 || existing.score < 10) {
+    await Storage.setTabState(tabId, existing);
+    return;
+  }
 
   if (existing.rules.some(r => r.rule === RULES.PASSWORD_FIELD)) return;
 
@@ -303,106 +376,6 @@ async function handlePageSignals(tabId, signals) {
   const updatedRaw = { ...existing, rules: updatedRules, score: existing.score + meta.weight };
   const updatedResult = scoreResult(updatedRaw);
   await finalizeAnalysis(tabId, updatedResult);
-}
-
-/**
- * Run the AI Trust Verification Layer for a safe-rated result.
- * Purely additive — merges AI penalty rules back via finalizeAnalysis.
- */
-async function runAITrustOnResult(tabId, heuristicResult) {
-  const settings = await chrome.storage.sync.get(['enableAITrustLayer', 'geminiApiKey']);
-  if (!settings.enableAITrustLayer) return;
-
-  // Build content signals from URL (page-level signals — body/email extracted by content.js separately)
-  const content = {
-    senderEmail:  '',
-    senderDomain: heuristicResult.domain || '',
-    displayName:  '',
-    subject:      '',
-    body:         '',
-    urls:         [heuristicResult.url],
-    attachments:  [],
-    displayUrl:   '',
-    actualUrl:    heuristicResult.url,
-  };
-
-  const aiResult = await runAITrustVerification(heuristicResult, content, settings);
-  if (!aiResult.ran || aiResult.heuristicPenalty === 0) return;
-
-  const existing = await Storage.getTabState(tabId);
-  if (!existing) return;
-
-  // Prevent duplicate AI Trust rules
-  if (existing.rules && existing.rules.some(r => r.rule === RULES.AI_TRUST_FINAL)) return;
-
-  const infoRules = [];
-
-  if (aiResult.languageRisk > 30) {
-    infoRules.push({
-      rule:      RULES.AI_TRUST_LINGUISTIC,
-      points:    0,
-      label:     RULE_META[RULES.AI_TRUST_LINGUISTIC].label,
-      reason:    `Language risk score: ${aiResult.languageRisk}/100. Flags: ${(aiResult.allFlags.slice(0, 2)).join('; ') || 'Suspicious patterns detected'}.`,
-      category:  'ai-trust',
-      triggered: true,
-    });
-  }
-
-  if (aiResult.brandScore > 30) {
-    infoRules.push({
-      rule:      RULES.AI_TRUST_BRAND,
-      points:    0,
-      label:     RULE_META[RULES.AI_TRUST_BRAND].label,
-      reason:    `Brand impersonation score: ${aiResult.brandScore}/100.${aiResult.detectedBrand ? ` Detected brand: ${aiResult.detectedBrand.toUpperCase()}.` : ''}`,
-      category:  'ai-trust',
-      triggered: true,
-    });
-  }
-
-  if (aiResult.behaviorScore > 20) {
-    infoRules.push({
-      rule:      RULES.AI_TRUST_BEHAVIOR,
-      points:    0,
-      label:     RULE_META[RULES.AI_TRUST_BEHAVIOR].label,
-      reason:    `Behavioral score: ${aiResult.behaviorScore}/100. ${aiResult.isFirstTimeSender ? 'First-time sender.' : 'Anomaly detected.'}`,
-      category:  'ai-trust',
-      triggered: true,
-    });
-  }
-
-  if (aiResult.linkRisk > 30) {
-    infoRules.push({
-      rule:      RULES.AI_TRUST_LINK,
-      points:    0,
-      label:     RULE_META[RULES.AI_TRUST_LINK].label,
-      reason:    `Link risk score: ${aiResult.linkRisk}/100. Suspicious link patterns detected.`,
-      category:  'ai-trust',
-      triggered: true,
-    });
-  }
-
-  // The final penalty rule (this is the one that affects score)
-  const geminiNote = aiResult.usedGemini ? ` (Gemini: ${aiResult.geminiReasoning})` : '';
-  infoRules.push({
-    rule:      RULES.AI_TRUST_FINAL,
-    points:    aiResult.heuristicPenalty,
-    label:     RULE_META[RULES.AI_TRUST_FINAL].label,
-    reason:    `AI Trust score: ${aiResult.aiScore}/100 — ${aiResult.aiCategory}. ${geminiNote || 'Trusted domain may be abused for social engineering.'}`.trim(),
-    category:  'ai-trust',
-    triggered: true,
-  });
-
-  const updatedRules = [...(existing.rules || []), ...infoRules];
-  const updatedScore = updatedRules.reduce((sum, r) => sum + r.points, 0);
-  const updatedRaw   = { ...existing, rules: updatedRules, score: Math.max(0, updatedScore), aiTrust: aiResult };
-  const updatedResult = scoreResult(updatedRaw);
-  updatedResult.aiTrust = aiResult;
-
-  await Storage.setTabState(tabId, updatedResult);
-  await updateBadge(tabId, updatedResult.category);
-  notifyPopup(tabId, updatedResult);
-
-  console.log(`[PhishGuard AI Trust] Completed for ${heuristicResult.domain}: ${aiResult.aiCategory} (score: ${aiResult.aiScore}, penalty: +${aiResult.heuristicPenalty})`);
 }
 
 async function addToWhitelist(domain) {

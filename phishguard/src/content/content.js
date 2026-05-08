@@ -16,7 +16,7 @@
     const textFields     = document.querySelectorAll('input[type="text"], input[type="email"]').length;
     const forms          = document.querySelectorAll('form').length;
 
-    if (passwordFields > 0 || forms > 0) {
+    if (passwordFields > 0 || forms > 0 || textFields > 0) {
       chrome.runtime.sendMessage({
         type:    'PAGE_SIGNALS',
         signals: {
@@ -24,6 +24,7 @@
           textFields,
           forms,
           url: window.location.href,
+          bodyText: document.body.innerText.substring(0, 2000), // First 2000 chars
         },
       }).catch(() => {});
     }

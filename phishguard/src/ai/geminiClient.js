@@ -1,106 +1,56 @@
 /**
- * PhishGuard — Gemini API Client (AI Trust Layer)
- * Optional LLM-powered deep analysis using Google Gemini.
- * Only called when user has configured a Gemini API key.
+ * PhishGuard — Gemini API Client
+ * Optional LLM-powered analysis for the AI Trust Layer.
  */
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-
-const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in phishing and social engineering detection. 
-Analyze the provided message content and metadata for phishing indicators.
-You MUST respond with ONLY valid JSON in this exact format:
-{
-  "verdict": "SAFE" | "SUSPICIOUS" | "HIGH_RISK",
-  "confidence": <number 0-100>,
-  "reasoning": "<one concise sentence>",
-  "flags": ["<flag1>", "<flag2>"]
-}
-Do not include any other text outside the JSON.`;
+const GEMINI_API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
 
 /**
- * Build a structured prompt from extracted signals.
+ * Sends content to Gemini for deep security analysis.
+ * @param {object} analysisData - Combined data from all analyzers
+ * @param {string} apiKey - Gemini API Key
+ * @returns {Promise<object>}
  */
-function buildPrompt(signals) {
-  const parts = ['Analyze this content for phishing/social engineering:\n'];
+export async function analyzeWithGemini(analysisData, apiKey) {
+  if (!apiKey) return null;
 
-  if (signals.senderEmail)  parts.push(`Sender Email: ${signals.senderEmail}`);
-  if (signals.senderDomain) parts.push(`Sender Domain: ${signals.senderDomain}`);
-  if (signals.displayName)  parts.push(`Display Name: ${signals.displayName}`);
-  if (signals.subject)      parts.push(`Subject: ${signals.subject}`);
-  if (signals.url)          parts.push(`URL: ${signals.url}`);
-  if (signals.domain)       parts.push(`Domain: ${signals.domain}`);
+  const prompt = `
+    Analyze the following content for phishing and social engineering threats. 
+    Heuristic results: ${JSON.stringify(analysisData)}
+    
+    Respond in JSON format only:
+    {
+      "confidence": 0-100,
+      "verdict": "SAFE" | "SUSPICIOUS" | "HIGH RISK",
+      "reasoning": "string"
+    }
+  `;
 
-  if (signals.body) {
-    const truncatedBody = signals.body.length > 800
-      ? signals.body.slice(0, 800) + '... [truncated]'
-      : signals.body;
-    parts.push(`\nMessage Body:\n${truncatedBody}`);
-  }
-
-  if (signals.linguisticFlags?.length)  parts.push(`\nLinguistic Flags: ${signals.linguisticFlags.join(', ')}`);
-  if (signals.brandFlags?.length)       parts.push(`Brand Flags: ${signals.brandFlags.join(', ')}`);
-  if (signals.linkFlags?.length)        parts.push(`Link Flags: ${signals.linkFlags.join(', ')}`);
-  if (signals.attachmentFlags?.length)  parts.push(`Attachment Flags: ${signals.attachmentFlags.join(', ')}`);
-
-  parts.push('\nRespond with ONLY the JSON object described in your instructions.');
-  return parts.join('\n');
-}
-
-/**
- * Call Gemini API for deep phishing analysis.
- * @param {Object} signals - Aggregated signals from local analyzers
- * @param {string} apiKey  - Gemini API key
- * @returns {Promise<{ verdict: string, confidence: number, reasoning: string, flags: string[], usedGemini: boolean }>}
- */
-export async function callGeminiAnalysis(signals, apiKey) {
-  if (!apiKey || !signals) {
-    return { verdict: 'SAFE', confidence: 0, reasoning: 'Gemini not configured', flags: [], usedGemini: false };
-  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
   try {
-    const prompt = buildPrompt(signals);
-    const requestBody = {
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: `${SYSTEM_PROMPT}\n\n${prompt}` }],
-        },
-      ],
-      generationConfig: {
-        temperature:    0.1,
-        maxOutputTokens: 256,
-        responseMimeType: 'application/json',
-      },
-    };
-
-    const response = await fetch(`${GEMINI_API_BASE}?key=${apiKey}`, {
-      method:  'POST',
+    const response = await fetch(`${GEMINI_API_ENDPOINT}?key=${apiKey}`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(requestBody),
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      }),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      console.warn('[PhishGuard AI Trust] Gemini API error:', response.status);
-      return { verdict: 'SAFE', confidence: 0, reasoning: `Gemini API error ${response.status}`, flags: [], usedGemini: false };
-    }
+    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
 
     const data = await response.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) throw new Error('Empty Gemini response');
-
-    // Parse JSON response
-    const parsed = JSON.parse(rawText.trim());
-
-    return {
-      verdict:    parsed.verdict    || 'SAFE',
-      confidence: Number(parsed.confidence) || 0,
-      reasoning:  parsed.reasoning  || '',
-      flags:      Array.isArray(parsed.flags) ? parsed.flags : [],
-      usedGemini: true,
-    };
+    const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    // Extract JSON from response (sometimes Gemini wraps it in markdown)
+    const jsonMatch = textResult.match(/\{[\s\S]*\}/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
 
   } catch (err) {
-    console.warn('[PhishGuard AI Trust] Gemini call failed:', err.message);
-    return { verdict: 'SAFE', confidence: 0, reasoning: `Gemini error: ${err.message}`, flags: [], usedGemini: false };
+    console.warn('[PhishGuard] Gemini analysis failed:', err.message);
+    return null;
   }
 }

@@ -35,16 +35,16 @@ const btnAddWhitelist      = $('btn-add-whitelist');
 const whitelistList        = $('whitelist-list');
 const whitelistEmpty       = $('whitelist-empty');
 
+// AI Trust
+const toggleAiTrust        = $('toggle-ai-trust');
+const geminiApiKey         = $('gemini-api-key');
+const btnToggleGeminiKey   = $('btn-toggle-gemini-key');
+const geminiStatus         = $('gemini-status');
+const geminiKeySection     = $('gemini-key-section');
+
 // Actions
 const btnSave              = $('btn-save');
 const optionsToast         = $('options-toast');
-
-// AI Trust
-const toggleAITrust        = $('toggle-ai-trust');
-const inputGeminiKey       = $('input-gemini-key');
-const btnToggleGeminiKey   = $('btn-toggle-gemini-key');
-const geminiKeyStatus      = $('gemini-key-status');
-const aiTrustKeySection    = $('ai-trust-key-section');
 
 // Nav
 const navItems             = document.querySelectorAll('.nav-item');
@@ -60,8 +60,8 @@ const DEFAULTS = {
   enableSafeBrowsing:  false,
   safeBrowsingApiKey:  '',
   whitelistedDomains:  [],
-  enableAITrustLayer:  false,
-  geminiApiKey:        '',
+  enableAITrustLayer:  true,
+  geminiApiKey:        'AIzaSyC-bulMEy9FcwLfJ3FFMkcWJTQVuj0bnPU',
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -83,14 +83,14 @@ async function loadSettings() {
     apiKeySection.style.display = syncData.enableSafeBrowsing ? 'flex' : 'none';
     updateApiStatus(syncData.safeBrowsingApiKey);
 
-    // AI Trust Layer
-    toggleAITrust.checked         = syncData.enableAITrustLayer || false;
-    inputGeminiKey.value          = syncData.geminiApiKey || '';
-    aiTrustKeySection.style.display = syncData.enableAITrustLayer ? 'block' : 'none';
-    updateGeminiKeyStatus(syncData.geminiApiKey);
-
     // Whitelist
     renderWhitelist(syncData.whitelistedDomains || []);
+
+    // AI Trust
+    toggleAiTrust.checked = syncData.enableAITrustLayer;
+    geminiApiKey.value = syncData.geminiApiKey || '';
+    geminiKeySection.style.display = syncData.enableAITrustLayer ? 'flex' : 'none';
+    updateGeminiStatus(syncData.geminiApiKey);
 
     // Blocklist count
     const count = (localData.customBlocklist || []).length;
@@ -114,8 +114,8 @@ async function saveSettings() {
       cacheTtlMinutes:     parseInt(cacheTtl.value, 10) || 5,
       enableSafeBrowsing:  toggleSafeBrowsing.checked,
       safeBrowsingApiKey:  inputApiKey.value.trim(),
-      enableAITrustLayer:  toggleAITrust.checked,
-      geminiApiKey:        inputGeminiKey.value.trim(),
+      enableAITrustLayer:  toggleAiTrust.checked,
+      geminiApiKey:        geminiApiKey.value.trim(),
     });
 
     // Notify service worker to clear cache (settings changed)
@@ -162,38 +162,36 @@ function updateApiStatus(key) {
 
 inputApiKey.addEventListener('input', () => updateApiStatus(inputApiKey.value.trim()));
 
-// ──────────────────────────────────────────────────────────────────────────────
-// AI Trust Layer Settings
-// ──────────────────────────────────────────────────────────────────────────────
-toggleAITrust.addEventListener('change', () => {
-  aiTrustKeySection.style.display = toggleAITrust.checked ? 'block' : 'none';
+// AI Trust API Key
+toggleAiTrust.addEventListener('change', () => {
+  geminiKeySection.style.display = toggleAiTrust.checked ? 'flex' : 'none';
 });
 
 btnToggleGeminiKey.addEventListener('click', () => {
-  const isPass = inputGeminiKey.type === 'password';
-  inputGeminiKey.type      = isPass ? 'text' : 'password';
-  btnToggleGeminiKey.textContent = isPass ? '🙈' : '👁';
+  const isPassword = geminiApiKey.type === 'password';
+  geminiApiKey.type = isPassword ? 'text' : 'password';
+  btnToggleGeminiKey.textContent = isPassword ? '🙈' : '👁';
 });
 
-function updateGeminiKeyStatus(key) {
-  if (!toggleAITrust.checked) {
-    geminiKeyStatus.textContent = '';
-    geminiKeyStatus.className   = 'api-status';
+function updateGeminiStatus(key) {
+  if (!toggleAiTrust.checked) {
+    geminiStatus.textContent = '';
+    geminiStatus.className = 'api-status';
     return;
   }
   if (!key) {
-    geminiKeyStatus.textContent = 'ℹ️ No Gemini key — AI Trust runs locally only.';
-    geminiKeyStatus.className   = 'api-status';
+    geminiStatus.textContent = '⚠️ No Gemini key — LLM analysis disabled.';
+    geminiStatus.className = 'api-status';
   } else if (key.startsWith('AIza') && key.length > 30) {
-    geminiKeyStatus.textContent = '✅ Gemini API key looks valid.';
-    geminiKeyStatus.className   = 'api-status ok';
+    geminiStatus.textContent = '✅ Gemini API key looks valid.';
+    geminiStatus.className = 'api-status ok';
   } else {
-    geminiKeyStatus.textContent = '⚠️ Gemini key format looks incorrect.';
-    geminiKeyStatus.className   = 'api-status error';
+    geminiStatus.textContent = '⚠️ Gemini API key format looks incorrect.';
+    geminiStatus.className = 'api-status error';
   }
 }
 
-inputGeminiKey.addEventListener('input', () => updateGeminiKeyStatus(inputGeminiKey.value.trim()));
+geminiApiKey.addEventListener('input', () => updateGeminiStatus(geminiApiKey.value.trim()));
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Cache Clear
