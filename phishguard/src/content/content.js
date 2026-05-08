@@ -37,6 +37,17 @@
 
   // 2. New functionality: Multi-Channel NLP Monitoring
   try {
+    // Skip analysis on highly trusted domains to prevent false positives (e.g., GitHub, Google)
+    const TRUSTED_DOMAINS = [
+      'github.com', 'google.com', 'microsoft.com', 'apple.com', 'stack overflow.com',
+      'chatgpt.com', 'anthropic.com', 'gemini.google.com'
+    ];
+    const currentDomain = window.location.hostname.replace('www.', '');
+    if (TRUSTED_DOMAINS.some(d => currentDomain === d || currentDomain.endsWith('.' + d))) {
+      console.log(`[PhishGuard] Trusted domain detected (${currentDomain}). Skipping NLP scan.`);
+      return;
+    }
+
     const nlpUrl = chrome.runtime.getURL('src/ai/nlpEngine.js');
     const observerUrl = chrome.runtime.getURL('src/content/domObserver.js');
     const alertUrl = chrome.runtime.getURL('src/content/alertInjector.js');
