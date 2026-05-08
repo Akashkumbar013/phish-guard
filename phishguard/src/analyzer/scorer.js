@@ -46,6 +46,9 @@ export function scoreResult(analysisResult) {
     effectiveScore = SCORE_THRESHOLDS.SAFE_MAX + 1; // Force into SUSPICIOUS
   }
 
+  // Ensure no negative scores (floor at 0)
+  effectiveScore = Math.max(0, effectiveScore);
+
   const category    = isWhitelisted ? RISK_CATEGORY.SAFE : scoreToCategory(effectiveScore);
   const badgeConfig = getBadgeConfig(category);
 
