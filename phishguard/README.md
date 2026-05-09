@@ -73,7 +73,7 @@ phishguard/
 ### Analysis Pipeline
 
 ```
-Tab loads / URL changes
+Tab loads / URL changes / Text Discovery
         ↓
 Service Worker triggered
         ↓
@@ -87,7 +87,37 @@ Service Worker triggered
    (whitelist, custom blocklist, Google Safe Browsing)
         ↓
 ⑤ Merge results, update badge + popup
+        ↓
+⑥ AI Trust Verification Layer (Optional)
+   (Only if heuristics say SAFE — deep AI/LLM check)
+        ↓
+⑦ Final update to badge + popup
 ```
+
+---
+
+## 🧠 AI Trust Verification Layer
+
+PhishGuard includes a secondary **AI Trust Verification Layer** that activates only when the primary heuristic engine rates a domain or message as "Safe." This layer is designed to catch advanced Business Email Compromise (BEC), social engineering, and brand spoofing attacks that bypass traditional rules.
+
+### 🔬 Specialized AI Analyzers
+
+| Analyzer | Purpose | Detection Method |
+|---|---|---|
+| **Linguistic** | Social Engineering | Detects urgency, fear, payment/credential requests, and tone anomalies. |
+| **Brand Impersonation** | BEC & Spoofing | Deep check for brand abuse in non-brand domains/senders (Amazon, Google, etc). |
+| **Behavioral** | Anomalous Senders | Flags first-time sender patterns and timing anomalies. |
+| **Link Chain** | Obfuscated Links | Scans for redirect chains, URL shorteners, and Punycode spoofing. |
+| **Attachment** | Malicious Payloads | Analyzes metadata for suspicious double-extensions and high-risk file types. |
+
+### 🤖 Gemini AI Integration
+
+For the highest level of protection, PhishGuard integrates with the **Gemini Pro API**. 
+- **LLM Reasoning**: Processes heuristic signals through deep learning to identify subtle psychological manipulation.
+- **Privacy-First**: Content is sent to the Gemini API only if the user explicitly enables this layer in Settings.
+- **Dynamic Scoring**: AI verdicts (SAFE, SUSPICIOUS, HIGH RISK) add a penalty score (+25 or +50 pts) to the final risk calculation.
+
+---
 
 ---
 
@@ -224,6 +254,8 @@ https://paypa1.com      (1 instead of l)
 | `webNavigation` | Detect SPA navigation (history state changes) |
 | `alarms` | Periodic cache cleanup every 10 minutes |
 | `https://safebrowsing.googleapis.com/*` | Optional Safe Browsing API calls |
+| `https://generativelanguage.googleapis.com/*` | Optional Gemini API calls for AI Trust Layer |
+
 
 ---
 
